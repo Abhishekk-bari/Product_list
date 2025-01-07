@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-import { Link, BrowserRouter as Router, Route, Routes, useParams } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from "react";
+import axios from "axios";
+import { Link } from "react-router-dom";
+import SkeletonLoader from "../components/skeleton/Skeleton";
 
 interface Product {
   id: string;
@@ -16,71 +17,139 @@ interface Product {
   brands?: string;
 }
 
-const API_BASE_URL = 'https://world.openfoodfacts.org';
+const API_BASE_URL = "https://world.openfoodfacts.org";
 
-const FoodProductApp: React.FC = () => {
+const FoodList: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [barcodeQuery, setBarcodeQuery] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [barcodeQuery, setBarcodeQuery] = useState<string>("");
   const [page, setPage] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(false);
   const [hasMore, setHasMore] = useState<boolean>(true);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>("");
+  const [sortOption, setSortOption] = useState<string>(""); // Sorting state
 
-  const fetchProducts = useCallback(
-    async () => {
-      setLoading(true);
-      try {
-        const response = await axios.get(
-          `${API_BASE_URL}/cgi/search.pl?search_terms=${searchQuery}&json=true&page=${page}`
-        );
-        const newProducts = response.data.products.map((product: any) => ({
-          id: product.id || product.code,
-          product_name: product.product_name || 'N/A',
-          Common_name: product.Common_name || 'N/A',
-          quantity: product.quantity || 'N/A',          
-          image_url: product.image_url || '',
-          categories: product.categories || 'N/A',
-          ingredients_text: product.ingredients_text || 'N/A',
-          nutrition_grades: product.nutrition_grades || 'N/A',
-        }));
-
-        setProducts(newProducts);
-        setHasMore(newProducts.length > 0);
-      } catch (error) {
-        console.error('Error fetching products:', error);
-      }
-      setLoading(false);
-    },
-    [searchQuery, page]
-  );
-
-  const fetchProductByBarcode = async () => {
-    if (!barcodeQuery) return;
+  // Fetch products based on search query, category, and barcode
+  const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/v0/product/${barcodeQuery}.json`);
-      const product = response.data.product;
-      setProducts([
-        {
+      const endpoint = barcodeQuery
+        ? `${API_BASE_URL}/api/v0/product/${barcodeQuery}.json`
+        : `${API_BASE_URL}/cgi/search.pl`;
+
+      const params = barcodeQuery
+        ? {}
+        : {
+            search_terms: searchQuery,
+            json: true,
+            page,
+            ...(selectedCategory && {
+              page_size: 5,
+              tagtype_0: "categories",
+              tag_contains_0: "contains",
+              tag_0: selectedCategory,
+            }),
+          };
+
+      const response = await axios.get(endpoint, { params });
+
+      let newProducts: string | any[] = [];
+      if (barcodeQuery) {
+        const product = response.data.product;
+        if (product) {
+          newProducts = [
+            {
+              id: product.id || product.code,
+              product_name: product.product_name || "N/A",
+              Common_name: product.Common_name || "N/A",
+              quantity: product.quantity || "N/A",
+              image_url: product.image_url || "",
+              categories: product.categories || "N/A",
+              ingredients_text: product.ingredients_text || "N/A",
+              nutrition_grades: product.nutrition_grades || "N/A",
+              barcode: product.code || "N/A",
+            },
+          ];
+        }
+      } else {
+        newProducts = response.data.products.map((product: any) => ({
           id: product.id || product.code,
-          product_name: product.product_name || 'N/A',
-          Common_name: product.Common_name || 'N/A',
-          quantity: product.quantity || 'N/A',          
-          image_url: product.image_url || '',
-          categories: product.categories || 'N/A',
-          ingredients_text: product.ingredients_text || 'N/A',
-          nutrition_grades: product.nutrition_grades || 'N/A',
-        },
-      ]);
+          product_name: product.product_name || "N/A",
+          Common_name: product.Common_name || "N/A",
+          quantity: product.quantity || "N/A",
+          image_url: product.image_url || "",
+          categories: product.categories || "N/A",
+          ingredients_text: product.ingredients_text || "N/A",
+          nutrition_grades: product.nutrition_grades || "N/A",
+          barcode: product.code || "N/A",
+        }));
+      }
+
+      setProducts((prevProducts) => {
+        const uniqueProducts = [...prevProducts, ...newProducts].filter(
+          (product, index, self) =>
+            index === self.findIndex((p) => p.id === product.id)
+        );
+        return uniqueProducts;
+      });
+      setHasMore(newProducts.length > 0);
     } catch (error) {
-      console.error('Error fetching product by barcode:', error);
+      console.error("Error fetching products:", error);
     }
     setLoading(false);
+  }, [searchQuery, barcodeQuery, page, selectedCategory]);
+
+  // Fetch categories
+  const fetchCategories = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/categories.json`);
+      const categoryList = response.data.tags.map((tag: any) => tag.name);
+      setCategories(categoryList);
+    } catch (error) {
+      console.error("Error fetching categories:", error);
+    }
+  };
+
+  const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedCategory(e.target.value);
+    setPage(1);
+    setProducts([]); // Clear previous results
+    setHasMore(true);
+  };
+
+  // Sort products based on selected option
+  const sortProducts = (products: Product[]) => {
+    if (sortOption === "name-asc") {
+      return [...products].sort((a, b) =>
+        a.product_name.localeCompare(b.product_name)
+      );
+    }
+    if (sortOption === "name-desc") {
+      return [...products].sort((a, b) =>
+        b.product_name.localeCompare(a.product_name)
+      );
+    }
+    if (sortOption === "nutrition-asc") {
+      return [...products].sort((a, b) =>
+        a.nutrition_grades.localeCompare(b.nutrition_grades)
+      );
+    }
+    if (sortOption === "nutrition-desc") {
+      return [...products].sort((a, b) =>
+        b.nutrition_grades.localeCompare(a.nutrition_grades)
+      );
+    }
+    return products;
   };
 
   useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  useEffect(() => {
     fetchProducts();
-  }, [fetchProducts]);
+  }, [fetchProducts, page]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
@@ -89,119 +158,111 @@ const FoodProductApp: React.FC = () => {
     setHasMore(true);
   };
 
-  return (
-    <Router>
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <div className="p-4 max-w-6xl mx-auto pt-10">
-              <div className="flex justify-between items-center mb-4">
-                <input
-                  type="text"
-                  placeholder="Search by name..."
-                  value={searchQuery}
-                  onChange={handleSearch}
-                  className="border border-black p-2 rounded w-full max-w-sm"
-                />
-                <input
-                  type="text"
-                  placeholder="Search by barcode..."
-                  value={barcodeQuery}
-                  onChange={(e) => setBarcodeQuery(e.target.value)}
-                  className="border border-black p-2 max-w-sm rounded ml-2"
-                />
-                <button
-                  onClick={fetchProductByBarcode}
-                  className="ml-2 bg-blue-500 text-white p-2 rounded"
-                >
-                  Search
-                </button>
-              </div>
+  const handleBarcodeSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setBarcodeQuery(e.target.value);
+    setPage(1);
+    setProducts([]);
+    setHasMore(true);
+  };
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {products.map((product) => (
-                  <Link
-                    to={`/product/${product.id}`}
-                    key={product.id}
-                    className="border rounded p-4 shadow-lg hover:shadow-xl "
-                  >
-                    <img
-                      src={product.image_url}
-                      alt={product.product_name}
-                      className="w-full h-40 object-contain mb-4 rounded"
-                    />
-                    <h2 className="text-lg font-semibold mb-2">{product.product_name}, {product.quantity}</h2>
-                    {/* <p className='text-lg font-semibold'> </p> */}
-                  </Link>
-                ))}
-              </div>
-              {loading && <p className="text-center mt-4">Loading...</p>}
-            </div>
-          }
-        />
+  const sortedProducts = sortProducts(products);
 
-        <Route path="/product/:id" element={<ProductDetail />} />
-      </Routes>
-    </Router>
-  );
-};
+  const handleScroll = useCallback(() => {
+    const scrollPosition =
+      window.innerHeight + document.documentElement.scrollTop;
+    const bottomOffset = document.documentElement.offsetHeight - 100;
 
-const ProductDetail: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
-  const [product, setProduct] = useState<Product | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
+    if (scrollPosition >= bottomOffset && !loading && hasMore) {
+      setPage((prevPage) => prevPage + 1);
+    }
+  }, [loading, hasMore]);
 
   useEffect(() => {
-    const fetchProductDetail = async () => {
-      setLoading(true);
-      try {
-        const response = await axios.get(`${API_BASE_URL}/api/v0/product/${id}.json`);
-        const data = response.data.product;
-        setProduct({
-          id: data.id || data.code,
-          Common_name: data.Common_name || 'N/A',
-          product_name: data.product_name || 'N/A',
-          image_url: data.image_url || '',
-          categories: data.categories || 'N/A',
-          ingredients_text: data.ingredients_text || 'N/A',
-          nutrition_grades: data.nutrition_grades || 'N/A',
-          barcode: data.code || 'N/A',
-          quantity: data.quantity || 'N/A',
-          packaging: data.packaging || 'N/A',
-          brands: data.brands || 'N/A',
-        });
-      } catch (error) {
-        console.error('Error fetching product details:', error);
-      }
-      setLoading(false);
-    };
-
-    fetchProductDetail();
-  }, [id]);
-
-  if (loading) return <p>Loading...</p>;
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [handleScroll]);
 
   return (
-    <div className="p-7 max-w-6xl mx-auto flex gap-4 items-start pl-5 border rounded-xl shadow-xl">
-      {product && (
-        <>
-          <img src={product.image_url} alt={product.product_name} className="w-1/2 h-[70vh] rounded object-contain" />
-          <div className="w-2/3">
-            <h1 className="text-6xl leading-loose font-bold mb-2">{product.product_name}</h1>
-            <p className="mb-5"><strong>Common name:</strong> {product.Common_name}</p>
-            <p className="mb-5"><strong>Barcode:</strong> {product.barcode}</p>
-            <p className="mb-5"><strong>Quantity:</strong> {product.quantity}</p>
-            <p className="mb-5"><strong>Categories:</strong> {product.categories}</p>
-            <p className="mb-5"><strong>Ingredients:</strong> {product.ingredients_text}</p>
-            <p className="mb-5"><strong>Nutrition Grade:</strong> {product.nutrition_grades}</p>
-            <p className="mb-5"><strong>Packaging:</strong> {product.packaging}</p>
-            <p className="mb-5"><strong>Brands:</strong> {product.brands}</p>
-          </div>
-        </>
-      )}
+    <div className="p-4 max-w-6xl mx-auto pt-10">
+      <div className="flex justify-between items-center mb-4">
+        <input
+          type="text"
+          placeholder="Search by name..."
+          value={searchQuery}
+          onChange={handleSearch}
+          className="border border-black p-2 rounded w-full max-w-sm"
+        />
+        <input
+          type="text"
+          placeholder="Search by barcode..."
+          value={barcodeQuery}
+          onChange={handleBarcodeSearch}
+          className="border border-black p-2 rounded w-full max-w-sm ml-2"
+        />
+        <select
+          value={selectedCategory}
+          onChange={handleCategoryChange}
+          className="border border-black p-2 rounded ml-2"
+        >
+          <option value="">All Categories</option>
+          {categories.map((category) => (
+            <option key={category} value={category}>
+              {category}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={sortOption}
+          onChange={(e) => setSortOption(e.target.value)}
+          className="border border-black p-2 rounded ml-2"
+        >
+          <option value="">Sort By</option>
+          <option value="name-asc">Name (A-Z)</option>
+          <option value="name-desc">Name (Z-A)</option>
+          <option value="nutrition-asc">Nutrition Grade (Asc)</option>
+          <option value="nutrition-desc">Nutrition Grade (Desc)</option>
+        </select>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        {loading
+          ? Array.from({ length: 10 }).map((_, index) => (
+              <SkeletonLoader key={index} />
+            ))
+          : sortedProducts.map((product) => (
+              <Link
+                to={`/product/${product.id}`}
+                key={product.id}
+                className="border rounded p-4 shadow-lg hover:shadow-xl skeleton"
+              >
+                <img
+                  src={product.image_url}
+                  alt={product.product_name}
+                  loading="lazy"
+                  className="w-full h-40 object-contain mb-4 rounded "
+                />
+                <h2 className="text-lg font-semibold mb-2 ">
+                  {product.product_name}, {product.quantity}
+                </h2>
+              </Link>
+            ))}
+      </div>
+
+      {/* {loading && <p className="text-center mt-4">Loading...</p>} */}
+      <div className="text-center mt-4">
+        {hasMore && !loading && (
+          <button
+            onClick={() => setPage((prevPage) => prevPage + 1)}
+            className="px-4 py-2 bg-black-500 text-white rounded"
+          >
+            Load More
+          </button>
+        )}
+        {loading && <p>Loading...</p>}
+      </div>
     </div>
   );
 };
 
-export default FoodProductApp;
+export default FoodList;

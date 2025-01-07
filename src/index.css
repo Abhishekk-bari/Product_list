@@ -64,3 +64,19 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes pulse {
+  0% {
+    background-color: #e0e0e0;
+  }
+  50% {
+    background-color: #f0f0f0;
+  }
+  100% {
+    background-color: #e0e0e0;
+  }
+}
+
+.skeleton {
+  animation: pulse 2.5s;
+}
