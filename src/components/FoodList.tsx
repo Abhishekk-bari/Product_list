@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
 import SkeletonLoader from "../components/skeleton/Skeleton";
-import StarRating from "../components/star/StarRating"; // Assuming you placed it in a separate file
+import StarRating from "../components/star/StarRating"; 
 import { Button } from "@/components/ui/button";
 import Category from "./Category";
 
